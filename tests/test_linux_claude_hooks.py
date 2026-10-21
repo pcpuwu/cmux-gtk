@@ -42,7 +42,14 @@ def main():
         with running_app(root, {"PATH": env["PATH"], "CLAUDE_CONFIG_DIR": str(config)}) as app:
             initial = next(row for row in app.surfaces() if row["active"])
             app.cli("new-workspace", "--name", "hook-target")
-            target = next(row["uuid"] for row in app.surfaces() if row["active"])
+            target_row = next(row for row in app.surfaces() if row["active"])
+            target = target_row["uuid"]
+
+            def agent_status():
+                """Read the Claude status the hooks published in the target surface's workspace."""
+                metadata = json.loads(app.cli("--json", "list-status", "--workspace", target_row["workspace_uuid"]))
+                status = metadata["statuses"].get("agent.claude")
+                return status and status["value"]
             hook_env = dict(app.environment, CMUX_SURFACE_ID=target, CMUX_SOCKET=str(app.socket_path))
             native_id = "session-with-'quotes'"
 
@@ -54,7 +61,9 @@ def main():
                 assert (result.returncode == 0) == valid, result.stderr
 
             event("SessionStart", native_id)
+            assert agent_status() == "Claude: idle"
             event("UserPromptSubmit", native_id)
+            assert agent_status() == "Claude: running"
             binding = json.loads(app.cli("surface", "resume", "show", "--surface", target, "--json"))["resume_binding"]
             assert binding["checkpoint_id"] == native_id and binding["kind"] == "claude"
             assert binding["cwd"] == str(root)
@@ -65,7 +74,11 @@ def main():
             assert argv_output.read_text().splitlines() == ["--resume", native_id]
             app.cli("select-workspace", initial["workspace_uuid"])
             event("Stop", native_id, last_assistant_message="Build finished", stop_hook_active=False)
+            assert agent_status() == "Claude: idle"
             event("Notification", native_id, title="Permission needed", message="λ" * 5000, notification_type="permission_prompt")
+            assert agent_status() == "Claude: needs input"
+            initial_status = json.loads(app.cli("--json", "list-status", "--workspace", initial["workspace_uuid"]))
+            assert "agent.claude" not in initial_status["statuses"], "status must follow the hook's surface"
             notifications = json.loads(app.cli("notifications", "list", "--json"))["notifications"]
             assert len(notifications) == 2
             assert notifications[0]["body"] == "Build finished"
@@ -75,8 +88,10 @@ def main():
             assert next(row["uuid"] for row in app.surfaces() if row["active"]) == initial["uuid"]
             assert json.loads(app.cli("surface", "resume", "show", "--surface", target, "--json"))["resume_binding"] == binding
             event("SessionEnd", "older-session", valid=False)
+            assert agent_status() == "Claude: needs input", "a stale session must not clear the status"
             assert json.loads(app.cli("surface", "resume", "show", "--surface", target, "--json"))["resume_binding"] == binding
             event("SessionEnd", native_id)
+            assert agent_status() is None
             assert json.loads(app.cli("surface", "resume", "show", "--surface", target, "--json"))["resume_binding"] is None
             event("SessionStart", "", valid=False)
             missing = subprocess.run([executable, "--socket", str(root / "missing.sock"), "hooks", "claude", "session-start"],

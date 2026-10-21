@@ -1055,28 +1055,33 @@ impl AppState {
         self.update_sidebar_attention(index);
     }
 
-    /// Update the sidebar dot visibility for workspace at `index`.
+    /// Unread inbox records attributed to the workspace at `index`.
+    pub(crate) fn unread_count(&self, index: usize) -> usize {
+        self.workspaces.get(index).map_or(0, |ws| {
+            self.inbox
+                .records
+                .iter()
+                .filter(|record| record.workspace_id == ws.uuid && !record.is_read)
+                .count()
+        })
+    }
+
+    /// Update the sidebar badge for workspace at `index`: the unread notification count, or a
+    /// plain dot for terminal-bell attention.
     pub(crate) fn update_sidebar_attention(&self, index: usize) {
-        if let Some(row) =
-            crate::sidebar::row_for_workspace(&self.sidebar_list, self.workspaces[index].id)
-        {
-            let has_attention = self
-                .workspaces
-                .get(index)
-                .map(|ws| {
-                    ws.has_attention
-                        || self
-                            .inbox
-                            .records
-                            .iter()
-                            .any(|record| record.workspace_id == ws.uuid && !record.is_read)
-                })
-                .unwrap_or(false);
-            // Row layout: GtkBox(H) > [GtkBox(V) > [GtkLabel(name)], GtkLabel(dot)]
-            if let Some(hbox) = row.child().and_downcast::<gtk4::Box>() {
-                if let Some(dot) = hbox.last_child() {
-                    dot.set_visible(has_attention);
-                }
+        let Some(workspace) = self.workspaces.get(index) else {
+            return;
+        };
+        if let Some(row) = crate::sidebar::row_for_workspace(&self.sidebar_list, workspace.id) {
+            let badge =
+                crate::sidebar::attention_badge(workspace.has_attention, self.unread_count(index));
+            // Locate the badge by CSS class; the row also holds the close button.
+            if let Some(label) = row
+                .child()
+                .and_downcast::<gtk4::Box>()
+                .and_then(|hbox| crate::sidebar::row_badge(&hbox))
+            {
+                crate::sidebar::apply_badge(&label, badge.as_deref());
             }
         }
         crate::sidebar::update_group_attention(self);

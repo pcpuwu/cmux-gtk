@@ -331,6 +331,12 @@ originating terminal surface. Providers with prompt lifecycle events also record
 bounded Git tree baseline, so `diff --last-turn` includes tracked and untracked work
 without modifying the repository index.
 
+Hooks also publish an agent status in the workspace that owns the terminal, for
+example `Claude: running`, `Claude: needs input` or `Claude: idle`, under the key
+`agent.<provider>`. The status appears in the sidebar row and in `cmux list-status`,
+and is removed when the session ends. The row badge shows the workspace's unread
+notification count, or a dot for a terminal bell.
+
 ### Socket Path
 
 The cmux socket is at `$XDG_RUNTIME_DIR/cmux/cmux.sock` (typically `/run/user/$UID/cmux/cmux.sock`).

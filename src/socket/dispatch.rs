@@ -906,6 +906,13 @@ async fn dispatch_request(
                 },
                 None => None,
             };
+            let surface = match params.get("surface_id").filter(|value| !value.is_null()) {
+                Some(value) => match value.as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()) {
+                    Some(id) => Some(id),
+                    None => return err(req_id, "invalid_params", "invalid surface UUID"),
+                },
+                None => None,
+            };
             let action = match crate::workspace_metadata::parse(&method, &params) {
                 Ok(action) => action,
                 Err(message) => return err(req_id, "invalid_params", message),
@@ -913,6 +920,7 @@ async fn dispatch_request(
             commands::SocketCommand::WorkspaceMetadata {
                 req_id: req_id.clone(),
                 workspace,
+                surface,
                 action,
                 resp_tx,
             }
