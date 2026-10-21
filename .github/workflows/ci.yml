@@ -210,6 +210,9 @@ jobs:
       - name: Test final session save on immediate quit
         run: dbus-run-session -- xvfb-run -a python3 tests/test_linux_session_quit.py
 
+      - name: Test packaged Ghostty resources, named themes and shell integration
+        run: dbus-run-session -- xvfb-run -a python3 tests/test_linux_ghostty_resources.py
+
       - name: Test manual resume in its owning terminal
         run: dbus-run-session -- xvfb-run -a python3 tests/test_linux_resume.py
 

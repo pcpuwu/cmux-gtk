@@ -204,6 +204,15 @@ Direct binary installs check for updates quietly at most once per hour. Run
 automatic checks. Homebrew, Debian, RPM, and AppImage installations remain
 owned by their package manager.
 
+Named Ghostty themes, shell integration (working-directory and Git-branch
+reporting) and the `xterm-ghostty` terminfo entry need Ghostty's resources.
+Packages install them under `/usr/share/cmux`; the direct install copies them to
+`~/.local/share/cmux/{ghostty,terminfo}`. cmux also accepts an existing Ghostty
+installation, or `GHOSTTY_RESOURCES_DIR` when set. Source builds use
+`ghostty/zig-out/share`, or stage it with
+`scripts/stage-ghostty-resources.sh ~/.local/share`. The automatic updater
+replaces binaries only, so re-run the install script after a resources change.
+
 ## Browser Automation
 
 Agents running inside cmux can discover and use browser automation via the `cmux browser` CLI:

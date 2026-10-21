@@ -111,6 +111,7 @@ jobs:
             install -m 0644 "packaging/icons/hicolor/${size}/apps/io.cmux.App.png" \
               "dist/archive/share/icons/hicolor/${size}/apps/io.cmux.App.png"
           done
+          ./scripts/stage-ghostty-resources.sh dist/archive/share
           tar -C dist/archive -czf dist/cmux-gtk-linux-x86_64.tar.gz cmux cmux-app share
           (cd dist && sha256sum cmux-gtk-linux-x86_64.tar.gz > cmux-gtk-linux-x86_64.tar.gz.sha256)
 
@@ -120,6 +121,9 @@ jobs:
           tar -xzf dist/cmux-gtk-linux-x86_64.tar.gz -C dist/preflight
           dist/preflight/cmux --version
           dist/preflight/cmux-app --version
+          test -f dist/preflight/share/cmux/terminfo/x/xterm-ghostty
+          test -d dist/preflight/share/cmux/ghostty/themes
+          test -d dist/preflight/share/cmux/ghostty/shell-integration
           desktop-file-validate dist/preflight/share/applications/io.cmux.App.desktop
           appstreamcli validate --no-net dist/preflight/share/metainfo/io.cmux.App.metainfo.xml
           (cd dist && sha256sum --check cmux-gtk-linux-x86_64.tar.gz.sha256)
