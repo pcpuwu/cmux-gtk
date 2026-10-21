@@ -346,6 +346,12 @@ impl ShortcutMap {
         let lower_key = key.to_lower();
         self.map.get(&(masked, lower_key)).copied()
     }
+
+    /// Whether a GTK accelerator string resolves to any configured cmux shortcut.
+    pub fn is_bound(&self, accelerator: &str) -> bool {
+        gtk4::accelerator_parse(accelerator)
+            .is_some_and(|(key, mods)| self.lookup(mods, key).is_some())
+    }
 }
 
 #[cfg(test)]

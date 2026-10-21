@@ -26,15 +26,27 @@ pub fn install_shortcuts(
     let key_ctrl = gtk4::EventControllerKey::new();
     // CRITICAL: Capture phase -- fires before GLArea key handlers.
     key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    // Named so `GTK_DEBUG=keybindings` reports which controller handled a key.
+    key_ctrl.set_name(Some("cmux-shortcuts"));
 
     let sidebar_clone = sidebar.clone();
     let app_clone = app.clone();
+    let debug_keys = std::env::var_os("CMUX_DEBUG_KEYS").is_some_and(|value| value == "1");
+    if debug_keys {
+        trace_action_activations(window, "win");
+        trace_action_activations(app, "app");
+    }
 
     key_ctrl.connect_key_pressed({
         let state = state.clone();
         let window = window.downgrade();
-        move |_controller, keyval, _keycode, mods| {
-            match shortcut_map.lookup(mods, keyval) {
+        move |_controller, keyval, keycode, mods| {
+            let action = shortcut_map.lookup(mods, keyval);
+            let chord = gtk4::gdk::ModifierType::CONTROL_MASK | gtk4::gdk::ModifierType::ALT_MASK;
+            if debug_keys && mods.intersects(chord) {
+                eprintln!("{}", key_trace(keyval, keycode, mods, action));
+            }
+            match action {
                 // -- Workspace shortcuts --
                 Some(ShortcutAction::NewWorkspace) => {
                     handle_new_workspace(&state, &app_clone);
@@ -291,6 +303,47 @@ pub fn handle_close_workspace(state: &Rc<RefCell<AppState>>, app: &gtk4::Applica
         }
     });
     dialog.present();
+}
+
+/// Log every activation of the group's simple actions, whether from a menu or an accelerator.
+fn trace_action_activations(group: &impl IsA<gtk4::gio::ActionMap>, prefix: &'static str) {
+    let group = group.as_ref();
+    let names = group
+        .dynamic_cast_ref::<gtk4::gio::ActionGroup>()
+        .map(|group| group.list_actions())
+        .unwrap_or_default();
+    for name in names {
+        if let Some(action) = group
+            .lookup_action(&name)
+            .and_downcast::<gtk4::gio::SimpleAction>()
+        {
+            action
+                .connect_activate(move |_, _| eprintln!("cmux: action {prefix}.{name} activated"));
+        }
+    }
+}
+
+/// One `CMUX_DEBUG_KEYS=1` line: what the window's capture controller saw and matched.
+/// Only Ctrl or Alt chords are logged, never plain typing. This controller runs before GTK's
+/// application accelerators and the terminal, so every key press delivered to the window
+/// reaches it. No line at all means the compositor or an
+/// input method kept the key; a passed-on key that matches a menu accelerator is followed
+/// by a `cmux: action ... activated` line.
+pub(crate) fn key_trace(
+    keyval: gtk4::gdk::Key,
+    keycode: u32,
+    mods: gtk4::gdk::ModifierType,
+    action: Option<ShortcutAction>,
+) -> String {
+    use gtk4::glib::translate::IntoGlib;
+    let name = keyval
+        .name()
+        .map_or_else(|| format!("{:#x}", keyval.into_glib()), |n| n.to_string());
+    let action = action.map_or_else(
+        || "none (passed to the focused widget)".to_owned(),
+        |a| format!("{a:?}"),
+    );
+    format!("cmux: key {name} keycode={keycode} mods={mods:?} -> {action}")
 }
 
 /// Split the active pane. `vertical=false` -> split right (Ctrl+D), `vertical=true` -> split down.
