@@ -572,14 +572,41 @@ pub fn register_accels(app: &gtk4::Application, shortcuts: &crate::config::Short
         let accelerators: Vec<&str> = accelerator.as_deref().into_iter().collect();
         app.set_accels_for_action(name, &accelerators);
     }
-    app.set_accels_for_action("win.new-terminal-tab", &["<Ctrl>t"]);
-    app.set_accels_for_action("win.new-browser-tab", &["<Ctrl><Shift>l"]);
-    app.set_accels_for_action("win.copy", &["<Ctrl><Shift>c"]);
-    app.set_accels_for_action("win.paste", &["<Ctrl><Shift>v"]);
-    app.set_accels_for_action("win.find", &["<Ctrl>f"]);
-    app.set_accels_for_action("win.preferences", &["<Ctrl>comma"]);
-    app.set_accels_for_action("win.notifications", &["<Ctrl><Shift>i"]);
-    app.set_accels_for_action("app.quit", &["<Ctrl>q"]);
+    for (name, accelerator) in fixed_accels(shortcuts) {
+        let accelerators: Vec<&str> = accelerator.into_iter().collect();
+        app.set_accels_for_action(name, &accelerators);
+    }
+}
+
+/// Accelerators for actions that have no configurable shortcut.
+const FIXED_ACCELS: &[(&str, &str)] = &[
+    ("win.new-terminal-tab", "<Ctrl>t"),
+    ("win.new-browser-tab", "<Ctrl><Shift>l"),
+    ("win.copy", "<Ctrl><Shift>c"),
+    ("win.paste", "<Ctrl><Shift>v"),
+    ("win.find", "<Ctrl>f"),
+    ("win.preferences", "<Ctrl>comma"),
+    ("win.notifications", "<Ctrl><Shift>i"),
+    ("app.quit", "<Ctrl>q"),
+];
+
+/// Fixed accelerators, minus any key the user bound to a cmux shortcut.
+///
+/// cmux's capture-phase key controller handles configured keys before GTK's application
+/// accelerators, so a fixed accelerator on the same key is unreachable. Dropping it keeps
+/// the menu from advertising it: with `new_workspace = "<Ctrl>t"`, the menu used to show
+/// Ctrl+T beside "New Tab (Terminal)" although Ctrl+T opens a workspace.
+pub fn fixed_accels(
+    shortcuts: &crate::config::ShortcutMap,
+) -> Vec<(&'static str, Option<&'static str>)> {
+    fixed_accels_unless(|accelerator| shortcuts.is_bound(accelerator))
+}
+
+fn fixed_accels_unless(bound: impl Fn(&str) -> bool) -> Vec<(&'static str, Option<&'static str>)> {
+    FIXED_ACCELS
+        .iter()
+        .map(|&(name, accelerator)| (name, (!bound(accelerator)).then_some(accelerator)))
+        .collect()
 }
 
 /// Build the hamburger menu model (D-11, D-12).
@@ -756,4 +783,116 @@ fn shortcut(accel: &str, title: &str) -> gtk4::ShortcutsShortcut {
         .accelerator(accel)
         .title(title)
         .build()
+}
+
+#[cfg(test)]
+mod accel_tests {
+    use super::*;
+    use crate::config::{ShortcutConfig, ShortcutMap};
+
+    /// A key the user bound to a cmux shortcut loses its fixed menu accelerator.
+    #[test]
+    fn fixed_accels_skip_keys_bound_to_cmux_shortcuts() {
+        assert!(fixed_accels_unless(|_| false)
+            .iter()
+            .all(|(_, a)| a.is_some()));
+        let fixed = fixed_accels_unless(|accel| matches!(accel, "<Ctrl>t" | "<Ctrl>q"));
+        assert!(fixed.contains(&("win.new-terminal-tab", None)));
+        assert!(fixed.contains(&("app.quit", None)));
+        assert!(fixed.contains(&("win.find", Some("<Ctrl>f"))));
+        assert_eq!(fixed.iter().filter(|(_, a)| a.is_none()).count(), 2);
+    }
+
+    /// The key trace names the key, its modifiers and the matched shortcut.
+    #[test]
+    fn key_trace_names_key_and_action() {
+        use crate::config::ShortcutAction;
+        use gtk4::gdk::{Key, ModifierType};
+        let line = crate::shortcuts::key_trace(
+            Key::d,
+            40,
+            ModifierType::CONTROL_MASK,
+            Some(ShortcutAction::SplitRight),
+        );
+        assert!(line.starts_with("cmux: key d keycode=40 mods="), "{line}");
+        assert!(
+            line.contains("CONTROL_MASK") && line.ends_with("-> SplitRight"),
+            "{line}"
+        );
+        let line = crate::shortcuts::key_trace(Key::t, 28, ModifierType::CONTROL_MASK, None);
+        assert!(
+            line.ends_with("-> none (passed to the focused widget)"),
+            "{line}"
+        );
+    }
+
+    /// GTK runs a widget's controllers newest first and stops at the first that handles a key,
+    /// so cmux's controller, added after the window's application accelerators, sees every
+    /// key first. The accelerator table must still agree with ShortcutMap for menu labels.
+    #[test]
+    #[ignore = "requires GTK display; run in the headless CI job"]
+    fn shortcut_controller_runs_before_application_accels() {
+        gtk4::init().unwrap();
+        let app =
+            gtk4::Application::new(Some("io.cmux.AccelTest"), gio::ApplicationFlags::NON_UNIQUE);
+        app.register(None::<&gio::Cancellable>).unwrap();
+        use crate::config::ShortcutAction;
+        use gtk4::gdk::{Key, ModifierType};
+        let defaults = ShortcutMap::from_config(&ShortcutConfig::default());
+        let ctrl = ModifierType::CONTROL_MASK;
+        let caps = ctrl | ModifierType::LOCK_MASK;
+        for (mods, key, action) in [
+            (ctrl, Key::d, ShortcutAction::SplitRight),
+            (caps, Key::D, ShortcutAction::SplitRight),
+            (ctrl, Key::n, ShortcutAction::NewWorkspace),
+            (ctrl, Key::b, ShortcutAction::ToggleSidebar),
+            (ctrl, Key::_1, ShortcutAction::Workspace1),
+            (caps, Key::_9, ShortcutAction::Workspace9),
+            (ctrl, Key::bracketright, ShortcutAction::NextWorkspace),
+        ] {
+            assert_eq!(defaults.lookup(mods, key), Some(action), "{mods:?} {key:?}");
+        }
+        assert_eq!(defaults.lookup(ModifierType::empty(), Key::d), None);
+        assert!(defaults.is_bound("<Ctrl>d") && !defaults.is_bound("<Ctrl>t"));
+
+        let shortcuts = ShortcutMap::from_config(&ShortcutConfig {
+            new_workspace: Some("<Ctrl>t".into()),
+            ..Default::default()
+        });
+        register_accels(&app, &shortcuts);
+        assert_eq!(app.accels_for_action("win.split-right"), ["<Control>d"]);
+        assert_eq!(app.accels_for_action("win.toggle-sidebar"), ["<Control>b"]);
+        assert_eq!(app.actions_for_accel("<Control>t"), ["win.new-workspace"]);
+        assert!(app.accels_for_action("win.new-terminal-tab").is_empty());
+        assert_eq!(app.accels_for_action("app.quit"), ["<Control>q"]);
+
+        let window = gtk4::ApplicationWindow::new(&app);
+        let state = crate::app_state::AppState::new(
+            gtk4::Stack::new(),
+            gtk4::ListBox::new(),
+            std::ptr::null_mut(),
+            app.clone(),
+        );
+        let sidebar = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        crate::shortcuts::install_shortcuts(&window, state, &sidebar, &app, shortcuts);
+        let controllers = window.observe_controllers();
+        let position = |matches: &dyn Fn(&gtk4::EventController) -> bool| {
+            (0..controllers.n_items()).find(|&i| {
+                controllers
+                    .item(i)
+                    .and_downcast::<gtk4::EventController>()
+                    .is_some_and(|c| {
+                        c.propagation_phase() == gtk4::PropagationPhase::Capture && matches(&c)
+                    })
+            })
+        };
+        let accels = position(&|c| c.name().as_deref() == Some("gtk-application-shortcuts"))
+            .expect("application shortcut controller");
+        let cmux = position(&|c| c.name().as_deref() == Some("cmux-shortcuts"))
+            .expect("cmux key controller");
+        assert!(
+            cmux < accels,
+            "application accelerators would see keys before cmux"
+        );
+    }
 }

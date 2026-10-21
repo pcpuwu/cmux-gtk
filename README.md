@@ -378,19 +378,36 @@ See [Architecture](Docs/Architecture.md), [Components](Docs/Components.md), and 
 | Shortcut | Action |
 |----------|--------|
 | Ctrl+N | Open the Create Workspace wizard |
-| Ctrl+1–8 | Jump to workspace 1–8 |
-| Ctrl+Shift+D | Split right |
-| Ctrl+D | Split down |
 | Ctrl+Shift+W | Close workspace |
-| Ctrl+W | Close pane |
-| Ctrl+] / [ | Next / previous workspace |
+| Ctrl+] / Ctrl+[ | Next / previous workspace |
+| Ctrl+1–9 | Jump to workspace 1–9 |
+| Ctrl+Shift+R | Rename workspace |
 | Ctrl+Shift+Page Up / Page Down | Move selected workspace up / down |
-| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous pane |
-| Ctrl+Shift+F | Find |
-| Ctrl+Shift+K | Clear scrollback |
+| Ctrl+Alt+G | Collapse or expand the workspace group |
+| Ctrl+B | Toggle sidebar |
+| Ctrl+D | Split right |
+| Ctrl+Shift+D | Split down |
+| Ctrl+Shift+X | Close pane |
+| Ctrl+Shift+Arrow | Focus the pane in that direction |
+| Ctrl+Shift+S | New SSH workspace |
+| Ctrl+Shift+B / Ctrl+Shift+Q | Open / close the browser pane |
+| Ctrl+T | New terminal tab |
+| Ctrl+Shift+L | New browser tab |
+| Ctrl+Shift+C / Ctrl+Shift+V | Copy / paste |
+| Ctrl+Shift+I | Notifications |
+| Ctrl+, | Preferences |
+| Ctrl+Q | Quit |
 
 Shortcuts are configurable via TOML config file. Workspace move overrides are
 `move_workspace_up` and `move_workspace_down` under `[shortcuts]`.
+cmux's shortcut handler sees each key before menu accelerators and the terminal; a key
+bound to a cmux shortcut loses its fixed menu accelerator.
+
+To check what a shortcut does on your keyboard, run
+`CMUX_DEBUG_KEYS=1 cmux-app 2>&1 | grep 'cmux: \(key\|action\)'`. Every Ctrl or Alt
+key press on the window prints a `cmux: key` line naming the matched shortcut, and
+menu actions print `cmux: action ... activated`. No line at all means the desktop or an
+input method kept the key before it reached cmux.
 
 ## Terminal preferences
 

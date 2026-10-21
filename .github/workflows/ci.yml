@@ -316,6 +316,9 @@ jobs:
       - name: Test sidebar unread badge
         if: ${{ !cancelled() && steps.debug_build.outcome == 'success' }}
         run: dbus-run-session -- xvfb-run -a cargo test --bin cmux-app sidebar_badge_shows_unread_count_and_keeps_close_button -- --ignored --test-threads=1
+      - name: Test shortcut controller order and menu accelerators
+        if: ${{ !cancelled() && steps.debug_build.outcome == 'success' }}
+        run: dbus-run-session -- xvfb-run -a cargo test --bin cmux-app shortcut_controller_runs_before_application_accels -- --ignored --test-threads=1
 
       - name: Test terminal memory and PTY cleanup under churn
         env:
