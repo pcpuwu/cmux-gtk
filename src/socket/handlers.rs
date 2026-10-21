@@ -1016,6 +1016,7 @@ fn handle_socket_command_traced(
             };
             match result {
                 Some(uuid_str) => {
+                    state.borrow().trigger_session_save();
                     let _ = resp_tx.send(ok(req_id, json!({"uuid": uuid_str})));
                 }
                 None => {

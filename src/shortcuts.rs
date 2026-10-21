@@ -294,31 +294,37 @@ pub fn handle_close_workspace(state: &Rc<RefCell<AppState>>, app: &gtk4::Applica
 }
 
 /// Split the active pane. `vertical=false` -> split right (Ctrl+D), `vertical=true` -> split down.
-pub fn handle_split(state: &Rc<RefCell<AppState>>, vertical: bool) {
-    let mut s = state.borrow_mut();
-    if let Some(engine) = s.active_split_engine_mut() {
-        let _new_pane_id = if vertical {
+/// Publishes a session snapshot after a successful split so keyboard and menu layouts survive
+/// restart. Returns the new pane ID, or None when there is no active pane. GTK thread only.
+pub fn handle_split(state: &Rc<RefCell<AppState>>, vertical: bool) -> Option<u64> {
+    let new_pane_id = {
+        let mut s = state.borrow_mut();
+        let engine = s.active_split_engine_mut()?;
+        // The new GLArea is added to the widget tree and marked active inside SplitEngine.
+        if vertical {
             engine.split_down()
         } else {
             engine.split_right()
-        };
-        // The new GLArea is already added to the widget tree inside SplitEngine.
-        // CSS active-pane class is updated inside SplitEngine.
-    }
-}
-
-/// Close the active pane (Ctrl+Shift+X).
-pub fn handle_close_pane(state: &Rc<RefCell<AppState>>, app: &gtk4::Application) {
-    let close_workspace = {
-        let mut s = state.borrow_mut();
-        if let Some(engine) = s.active_split_engine_mut() {
-            engine.close_active().is_none() // Last pane: close the workspace.
-        } else {
-            false
         }
     };
-    if close_workspace {
-        handle_close_workspace(state, app);
+    if new_pane_id.is_some() {
+        state.borrow().trigger_session_save();
+    }
+    new_pane_id
+}
+
+/// Close the active pane (Ctrl+Shift+X). Closing the final pane defers to the
+/// close-workspace confirmation; any other close publishes a session snapshot. GTK thread only.
+pub fn handle_close_pane(state: &Rc<RefCell<AppState>>, app: &gtk4::Application) {
+    let closed = {
+        let mut s = state.borrow_mut();
+        s.active_split_engine_mut()
+            .map(|engine| engine.close_active().is_some())
+    };
+    match closed {
+        Some(true) => state.borrow().trigger_session_save(),
+        Some(false) => handle_close_workspace(state, app), // Last pane: close the workspace.
+        None => {}
     }
 }
 
@@ -383,5 +389,61 @@ pub fn handle_new_terminal_tab(state: &Rc<RefCell<AppState>>) {
         .is_some();
     if created {
         state.borrow().trigger_session_save();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Count split dividers in a saved layout tree.
+    fn saved_splits(node: &crate::split_engine::SplitNodeData) -> usize {
+        match node {
+            crate::split_engine::SplitNodeData::Split { start, end, .. } => {
+                1 + saved_splits(start) + saved_splits(end)
+            }
+            _ => 0,
+        }
+    }
+
+    /// Take the latest published snapshot and return its active workspace split count.
+    fn published_splits(
+        rx: &mut tokio::sync::watch::Receiver<Option<crate::session::Snapshot>>,
+    ) -> Option<usize> {
+        if !rx.has_changed().unwrap() {
+            return None;
+        }
+        let snapshot = rx.borrow_and_update().clone().expect("snapshot published");
+        Some(saved_splits(
+            &snapshot.workspaces[snapshot.active_index].layout,
+        ))
+    }
+
+    /// Keyboard/menu splits and pane closes publish the session snapshot, so restart keeps them.
+    #[test]
+    #[ignore = "requires GTK display; run in GitHub Actions under Xvfb"]
+    fn keyboard_split_and_close_publish_session_snapshot() {
+        gtk4::init().unwrap();
+        let app = gtk4::Application::new(None::<&str>, gtk4::gio::ApplicationFlags::NON_UNIQUE);
+        app.register(None::<&gtk4::gio::Cancellable>).unwrap();
+        let stack = gtk4::Stack::new();
+        let state = AppState::new(
+            stack.clone(),
+            gtk4::ListBox::new(),
+            std::ptr::null_mut(),
+            app.clone(),
+        );
+        state.borrow_mut().create_workspace();
+        let (tx, mut rx) = tokio::sync::watch::channel(None);
+        state.borrow_mut().session_tx = Some(tx);
+        rx.mark_unchanged();
+
+        assert!(handle_split(&state, false).is_some());
+        assert_eq!(published_splits(&mut rx), Some(1));
+        assert!(handle_split(&state, true).is_some());
+        assert_eq!(published_splits(&mut rx), Some(2));
+
+        handle_close_pane(&state, &app);
+        assert_eq!(published_splits(&mut rx), Some(1));
     }
 }
