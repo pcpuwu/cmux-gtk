@@ -60,6 +60,10 @@ for skill in cmux cmux-browser; do
     done
 done
 
+# Ghostty themes, shell integration and terminfo
+mkdir -p %{buildroot}%{_datadir}/cmux
+cp -R %{_sourcedir}/ghostty-share/cmux/ghostty %{_sourcedir}/ghostty-share/cmux/terminfo %{buildroot}%{_datadir}/cmux/
+
 # CLAUDE.md
 install -Dm0644 %{_sourcedir}/CLAUDE.md %{buildroot}%{_datadir}/cmux/CLAUDE.md
 
@@ -80,3 +84,5 @@ install -Dm0644 %{_sourcedir}/CLAUDE.md %{buildroot}%{_datadir}/cmux/CLAUDE.md
 %{_mandir}/man1/cmux.1.gz
 %{_datadir}/cmux/CLAUDE.md
 %{_datadir}/cmux/skills/
+%{_datadir}/cmux/ghostty/
+%{_datadir}/cmux/terminfo/

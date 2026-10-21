@@ -85,6 +85,7 @@ fn main() {
     updater::spawn_auto_update();
 
     crate::ghostty::gtk_environment::configure();
+    crate::ghostty::resources::configure();
 
     // Tokio runtime for socket I/O (kept alive for app lifetime).
     let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
@@ -246,6 +247,7 @@ fn build_ui(
         // CFG-03: Ghostty loads its own config from ~/.config/ghostty/config
         ffi::ghostty_config_load_default_files(config);
         ffi::ghostty_config_finalize(config);
+        crate::ghostty::resources::report_config_diagnostics(config);
 
         let runtime_config = ffi::ghostty_runtime_config_s {
             userdata: std::ptr::null_mut(),
