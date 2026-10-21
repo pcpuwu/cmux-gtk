@@ -69,6 +69,8 @@ pub enum SocketCommand {
     WorkspaceMetadata {
         req_id: Value,
         workspace: Option<uuid::Uuid>,
+        /// Owning-workspace selector for agent hooks that know only their terminal surface.
+        surface: Option<uuid::Uuid>,
         action: crate::workspace_metadata::Action,
         resp_tx: RespTx,
     },

@@ -360,13 +360,15 @@ pub fn start_inline_rename(
             }
             {
                 let mut s = state.borrow_mut();
-                if let Some(workspace) = s.workspaces.iter_mut().find(|w| w.id == workspace_id) {
+                if let Some(index) = s.workspaces.iter().position(|w| w.id == workspace_id) {
+                    let workspace = &mut s.workspaces[index];
                     let name = entry.text();
                     if commit && !name.trim().is_empty() {
                         workspace.rename(name.trim().to_string());
                     }
                     row.set_child(Some(&workspace_row_content(workspace)));
                     style_workspace_row(&row, workspace);
+                    s.update_sidebar_attention(index);
                 }
                 s.trigger_session_save();
             }
@@ -412,6 +414,7 @@ pub fn rebuild_sidebar_row_content(name: &str) -> gtk4::Box {
 
     let dot = gtk4::Label::new(None);
     dot.add_css_class("attention-dot");
+    dot.set_valign(gtk4::Align::Center);
     dot.set_visible(false);
     hbox.append(&dot);
 
@@ -709,10 +712,52 @@ pub fn workspace_row_content(workspace: &crate::workspace::Workspace) -> gtk4::B
         status.add_css_class(workspace.connection_state.css_class());
         vbox.append(&status);
     }
-    if let Some(dot) = vbox.next_sibling().and_downcast::<gtk4::Label>() {
-        dot.set_visible(workspace.has_attention);
+    if let Some(dot) = row_badge(&hbox) {
+        apply_badge(&dot, attention_badge(workspace.has_attention, 0).as_deref());
     }
     hbox
+}
+
+/// Badge for a workspace row: the unread notification count (capped at 99+), an empty
+/// dot for terminal-bell attention, or `None` to hide it.
+pub fn attention_badge(bell: bool, unread: usize) -> Option<String> {
+    match unread {
+        0 if bell => Some(String::new()),
+        0 => None,
+        1..=99 => Some(unread.to_string()),
+        _ => Some("99+".into()),
+    }
+}
+
+/// The attention badge inside a row's content box, found by CSS class rather than position.
+pub fn row_badge(hbox: &gtk4::Box) -> Option<gtk4::Label> {
+    let mut child = hbox.first_child();
+    while let Some(widget) = child {
+        if widget.has_css_class("attention-dot") {
+            return widget.downcast::<gtk4::Label>().ok();
+        }
+        child = widget.next_sibling();
+    }
+    None
+}
+
+/// Show `badge` text on the row's attention label; numbers get the count style.
+pub fn apply_badge(label: &gtk4::Label, badge: Option<&str>) {
+    let text = badge.unwrap_or_default();
+    label.set_text(text);
+    label.set_visible(badge.is_some());
+    if text.is_empty() {
+        label.remove_css_class("unread-count");
+        label.set_tooltip_text(badge.map(|_| "Terminal bell"));
+    } else {
+        label.add_css_class("unread-count");
+        let noun = if text == "1" {
+            "notification"
+        } else {
+            "notifications"
+        };
+        label.set_tooltip_text(Some(&format!("{text} unread {noun}")));
+    }
 }
 
 /// Replace the row color provider and full-location tooltip without accumulating providers.
@@ -886,5 +931,81 @@ mod lifecycle_tests {
         let weak_state = Rc::downgrade(&state);
         drop(state);
         assert!(weak_state.upgrade().is_none());
+    }
+}
+
+#[cfg(test)]
+mod attention_tests {
+    use super::*;
+
+    #[test]
+    fn badge_prefers_unread_count_over_bell_dot() {
+        assert_eq!(attention_badge(false, 0), None);
+        assert_eq!(attention_badge(true, 0), Some(String::new()));
+        assert_eq!(attention_badge(true, 3), Some("3".into()));
+        assert_eq!(attention_badge(false, 99), Some("99".into()));
+        assert_eq!(attention_badge(false, 100), Some("99+".into()));
+    }
+
+    /// The badge must update the attention label, never the close button beside it.
+    #[test]
+    #[ignore = "requires GTK display; run in the headless CI job"]
+    fn sidebar_badge_shows_unread_count_and_keeps_close_button() {
+        gtk4::init().unwrap();
+        let app = gtk4::Application::new(Some("io.cmux.BadgeTest"), Default::default());
+        let list = gtk4::ListBox::new();
+        let state = crate::app_state::AppState::new(
+            gtk4::Stack::new(),
+            list.clone(),
+            std::ptr::null_mut(),
+            app,
+        );
+        state.borrow_mut().create_workspace();
+        let row = list.row_at_index(0).unwrap();
+        let hbox = || row.child().and_downcast::<gtk4::Box>().unwrap();
+        let close = || hbox().last_child().and_downcast::<gtk4::Button>().unwrap();
+        let badge = || row_badge(&hbox()).unwrap();
+        assert!(close().is_visible() && !badge().is_visible());
+
+        state.borrow_mut().workspaces[0].has_attention = true;
+        state.borrow().update_sidebar_attention(0);
+        assert!(badge().is_visible() && badge().text().is_empty());
+        assert!(close().is_visible(), "bell attention hid the close button");
+
+        let workspace = state.borrow().workspaces[0].uuid;
+        for read in [false, false, true] {
+            state.borrow_mut().inbox.records.push(crate::inbox::Record {
+                id: uuid::Uuid::new_v4(),
+                workspace_id: workspace,
+                surface_id: None,
+                content: crate::inbox::Content {
+                    title: "Claude needs attention".into(),
+                    subtitle: String::new(),
+                    body: String::new(),
+                },
+                created_at: "2026-10-22T00:00:00Z".into(),
+                is_read: read,
+            });
+        }
+        state.borrow().update_sidebar_attention(0);
+        assert_eq!(badge().text(), "2");
+        assert!(badge().has_css_class("unread-count"));
+        assert_eq!(
+            badge().tooltip_text().as_deref(),
+            Some("2 unread notifications")
+        );
+
+        for record in &mut state.borrow_mut().inbox.records {
+            record.is_read = true;
+        }
+        state.borrow_mut().clear_workspace_attention(0);
+        assert!(
+            !badge().is_visible(),
+            "badge stayed after attention cleared"
+        );
+        assert!(
+            close().is_visible(),
+            "clearing attention hid the close button"
+        );
     }
 }

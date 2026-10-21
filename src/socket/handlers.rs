@@ -202,16 +202,38 @@ fn handle_socket_command_traced(
         SocketCommand::WorkspaceMetadata {
             req_id,
             workspace,
+            surface,
             action,
             resp_tx,
         } => {
             let mut state = state.borrow_mut();
-            let index = match workspace {
-                Some(id) => state
+            let by_surface = surface.map(|surface| {
+                state
+                    .split_engines
+                    .iter()
+                    .position(|engine| engine.find_pane_id_by_uuid(&surface.to_string()).is_some())
+            });
+            let index = match (workspace, by_surface) {
+                (_, Some(None)) => {
+                    let _ = resp_tx.send(err(req_id, "not_found", "surface not found"));
+                    return;
+                }
+                (Some(id), Some(Some(index))) if state.workspaces[index].uuid != id => {
+                    let _ = resp_tx.send(err(
+                        req_id,
+                        "not_found",
+                        "surface is not in the selected workspace",
+                    ));
+                    return;
+                }
+                (_, Some(Some(index))) => Some(index),
+                (Some(id), None) => state
                     .workspaces
                     .iter()
                     .position(|workspace| workspace.uuid == id),
-                None => Some(state.active_index).filter(|index| *index < state.workspaces.len()),
+                (None, None) => {
+                    Some(state.active_index).filter(|index| *index < state.workspaces.len())
+                }
             };
             let Some(index) = index else {
                 let _ = resp_tx.send(err(req_id, "not_found", "workspace not found"));

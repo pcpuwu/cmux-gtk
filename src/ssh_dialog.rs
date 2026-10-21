@@ -167,6 +167,7 @@ fn trigger_ssh_connect(
             )));
             crate::sidebar::style_workspace_row(&row, &s.workspaces[index]);
         }
+        s.update_sidebar_attention(index);
         s.trigger_session_save();
     }
     let (list, app) = {
