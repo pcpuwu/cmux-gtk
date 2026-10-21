@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPOSITORY="${CMUX_GITHUB_REPOSITORY:-nitecon/cmux-gtk}"
 INSTALL_DIR="${CMUX_INSTALL_DIR:-$HOME/.local/bin}"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 VERSION="${CMUX_VERSION:-latest}"
 
 case "$(uname -m)" in
@@ -47,5 +48,20 @@ for binary in cmux-app cmux; do
 done
 
 echo "==> Installed cmux in $INSTALL_DIR"
+
+# Ghostty themes, shell integration and terminfo. Only these two directories are
+# replaced; session and settings files under $DATA_HOME/cmux are left alone.
+resources="$TEMP_DIR/payload/share/cmux"
+if [[ -d "$resources/ghostty" && -f "$resources/terminfo/x/xterm-ghostty" ]]; then
+    mkdir -p "$DATA_HOME/cmux"
+    for dir in ghostty terminfo; do
+        rm -rf "$DATA_HOME/cmux/$dir"
+        cp -R "$resources/$dir" "$DATA_HOME/cmux/$dir"
+    done
+    echo "==> Installed Ghostty themes and shell integration in $DATA_HOME/cmux"
+else
+    echo "    This release has no Ghostty resources; named themes and shell integration"
+    echo "    stay unavailable until GHOSTTY_RESOURCES_DIR points at a Ghostty share/ghostty."
+fi
 echo "    Browser panes are optional. To enable them:"
 echo "    npm install -g agent-browser && agent-browser install"

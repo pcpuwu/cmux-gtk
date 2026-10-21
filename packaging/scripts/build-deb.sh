@@ -75,6 +75,9 @@ done
 # Package CLAUDE.md (D-14)
 install -Dm0644 "$REPO_ROOT/packaging/CLAUDE.md" "$PKG_ROOT/usr/share/cmux/CLAUDE.md"
 
+# Ghostty themes, shell integration and terminfo (resolved via /usr/share/cmux/ghostty)
+"$REPO_ROOT/scripts/stage-ghostty-resources.sh" "$PKG_ROOT/usr/share"
+
 # DEBIAN/control
 mkdir -p "$PKG_ROOT/DEBIAN"
 cat > "$PKG_ROOT/DEBIAN/control" << CTRL

@@ -67,6 +67,9 @@ for skill in cmux cmux-browser; do
     cp -r "$REPO_ROOT/skills/$skill" "$STAGING/skills-$skill"
 done
 
+# Ghostty themes, shell integration and terminfo
+"$REPO_ROOT/scripts/stage-ghostty-resources.sh" "$STAGING/ghostty-share"
+
 # Package CLAUDE.md (D-14)
 cp "$REPO_ROOT/packaging/CLAUDE.md" "$STAGING/CLAUDE.md"
 
