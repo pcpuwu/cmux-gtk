@@ -1,5 +1,6 @@
 //! Native agent hook installation and bounded session payload ingestion.
 use super::{
+    agent_status::{self, Phase},
     args::{ClaudeHookEvent, CodexHookEvent, JsonHookEvent, RovoHookEvent},
     socket_client::SocketClient,
     CliError,
@@ -1672,6 +1673,15 @@ pub fn claude_event(client: &mut SocketClient, event: ClaudeHookEvent) -> Result
         ClaudeHookEvent::Notification => "Notification",
     };
     let (payload, id, surface) = read_hook_payload(expected)?;
+    let phase = match event {
+        ClaudeHookEvent::SessionStart | ClaudeHookEvent::Stop => Phase::Idle,
+        ClaudeHookEvent::PromptSubmit => Phase::Running,
+        ClaudeHookEvent::Notification => Phase::NeedsInput,
+        ClaudeHookEvent::SessionEnd => Phase::Ended,
+    };
+    if phase != Phase::Ended {
+        agent_status::publish(client, &surface, "claude", "Claude", phase);
+    }
     match event {
         ClaudeHookEvent::SessionStart => {
             set_agent_resume(
@@ -1717,6 +1727,10 @@ pub fn claude_event(client: &mut SocketClient, event: ClaudeHookEvent) -> Result
             create_agent_notification(client, &surface, title, subtitle, body)?;
         }
     }
+    // Clear only after the session identity was accepted above.
+    if phase == Phase::Ended {
+        agent_status::publish(client, &surface, "claude", "Claude", phase);
+    }
     Ok(())
 }
 
@@ -1729,6 +1743,14 @@ pub fn codex_event(client: &mut SocketClient, event: CodexHookEvent) -> Result<(
         CodexHookEvent::Stop => "Stop",
     };
     let (payload, id, surface) = read_hook_payload(expected)?;
+    let phase = match event {
+        CodexHookEvent::SessionStart | CodexHookEvent::Stop => Phase::Idle,
+        CodexHookEvent::PromptSubmit => Phase::Running,
+        CodexHookEvent::SessionEnd => Phase::Ended,
+    };
+    if phase != Phase::Ended {
+        agent_status::publish(client, &surface, "codex", "Codex", phase);
+    }
     match event {
         CodexHookEvent::SessionStart => {
             set_agent_resume(
@@ -1776,6 +1798,10 @@ pub fn codex_event(client: &mut SocketClient, event: CodexHookEvent) -> Result<(
             create_agent_notification(client, &surface, title, String::new(), body)?;
         }
     }
+    // Clear only after the session identity was accepted above.
+    if phase == Phase::Ended {
+        agent_status::publish(client, &surface, "codex", "Codex", phase);
+    }
     Ok(())
 }
 
@@ -1801,6 +1827,15 @@ pub fn json_provider_event(
         })?,
     };
     let (payload, id, surface) = read_hook_payload(expected)?;
+    let phase = match event {
+        JsonHookEvent::SessionStart | JsonHookEvent::Stop => Phase::Idle,
+        JsonHookEvent::PromptSubmit => Phase::Running,
+        JsonHookEvent::Notification => Phase::NeedsInput,
+        JsonHookEvent::SessionEnd => Phase::Ended,
+    };
+    if phase != Phase::Ended {
+        agent_status::publish(client, &surface, provider.name, provider.display, phase);
+    }
     match event {
         JsonHookEvent::SessionStart => {
             set_agent_resume(
@@ -1875,6 +1910,10 @@ pub fn json_provider_event(
                 bounded_notification_text(body, 8192)?,
             )?;
         }
+    }
+    // Clear only after the session identity was accepted above.
+    if phase == Phase::Ended {
+        agent_status::publish(client, &surface, provider.name, provider.display, phase);
     }
     Ok(())
 }

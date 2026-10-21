@@ -3,6 +3,7 @@
 //! This module is entirely independent of GTK4 and the GUI app.
 //! It connects to the cmux-app via Unix socket JSON-RPC.
 
+mod agent_status;
 #[path = "../bounded_json.rs"]
 mod bounded_json;
 #[path = "../browser_address.rs"]
